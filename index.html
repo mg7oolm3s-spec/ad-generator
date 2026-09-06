@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta name="theme-color" content="#0b1020">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ad Generator v1</title>
+  <style>
+    body{font-family:Arial,sans-serif;max-width:900px;margin:0 auto;padding:24px;background:#f6f7f9;color:#111}
+    .card{background:#fff;border-radius:18px;padding:20px;margin-bottom:18px;box-shadow:0 4px 18px #00000010}
+    h1{margin-top:0}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    button{border:0;border-radius:12px;padding:13px 18px;cursor:pointer;font-weight:700;background:#111;color:#fff}
+    button.secondary{background:#555} button:disabled{opacity:.5;cursor:not-allowed}
+    input[type=file]{max-width:100%} img.preview{max-width:280px;border-radius:14px;margin-top:12px;display:none}
+    #result{white-space:pre-wrap;line-height:1.8;background:#fafafa;border-radius:12px;padding:16px;min-height:100px}
+    #imageCard{display:none}.ad-image{width:100%;max-width:560px;display:block;margin:auto;border-radius:16px}
+    .status{margin-top:10px;color:#555}.error{color:#b00020}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🎯 مولّد الإعلانات</h1>
+    <p>ارفع صورة المنتج، ثم أنشئ فكرة الإعلان والتصميم النهائي تلقائياً.</p>
+    <input id="imageInput" type="file" accept="image/jpeg,image/png,image/webp" />
+    <img id="preview" class="preview" alt="معاينة المنتج" />
+    <div class="row" style="margin-top:16px">
+      <button id="generateAd">✨ إنشاء الإعلان</button>
+      <button id="generateImage" class="secondary" disabled>🎨 إنشاء الصورة الإعلانية</button>
+    </div>
+    <div id="status" class="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>نتيجة الإعلان</h2>
+    <div id="result">لم يتم إنشاء الإعلان بعد.</div>
+  </div>
+
+  <div id="imageCard" class="card">
+    <h2>التصميم الإعلاني</h2>
+    <img id="adImage" class="ad-image" alt="التصميم الإعلاني الناتج" />
+  </div>
+
+<script>
+const input = document.getElementById('imageInput');
+const preview = document.getElementById('preview');
+const generateAd = document.getElementById('generateAd');
+const generateImage = document.getElementById('generateImage');
+const result = document.getElementById('result');
+const status = document.getElementById('status');
+const imageCard = document.getElementById('imageCard');
+const adImage = document.getElementById('adImage');
+let latestAd = '';
+
+input.addEventListener('change', () => {
+  const file = input.files?.[0];
+  generateImage.disabled = !file;
+  if (!file) { preview.style.display='none'; return; }
+  preview.src = URL.createObjectURL(file);
+  preview.style.display='block';
+  imageCard.style.display='none';
+});
+
+async function postForm(url) {
+  const file = input.files?.[0];
+  if (!file) throw new Error('ارفع صورة المنتج أولاً.');
+  const form = new FormData();
+  form.append('image', file);
+  if (latestAd) form.append('adConcept', latestAd);
+  const r = await fetch(url, { method:'POST', body:form });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || 'حدث خطأ.');
+  return data;
+}
+
+generateAd.addEventListener('click', async () => {
+  try {
+    generateAd.disabled = true;
+    status.textContent = 'جاري تحليل المنتج وبناء فكرة الإعلان...';
+    const data = await postForm('/api/generate-ad');
+    latestAd = data.result;
+    result.textContent = latestAd;
+    generateImage.disabled = false;
+    status.textContent = 'تم إنشاء فكرة الإعلان. يمكنك الآن إنشاء التصميم النهائي.';
+  } catch(e) {
+    status.innerHTML = '<span class="error">' + e.message + '</span>';
+  } finally { generateAd.disabled = false; }
+});
+
+generateImage.addEventListener('click', async () => {
+  try {
+    generateImage.disabled = true;
+    status.textContent = 'جاري تحويل فكرة الإعلان إلى تصميم بصري...';
+    const data = await postForm('/api/generate-image');
+    adImage.src = data.image;
+    imageCard.style.display = 'block';
+    status.textContent = 'تم إنشاء التصميم الإعلاني.';
+  } catch(e) {
+    status.innerHTML = '<span class="error">' + e.message + '</span>';
+  } finally { generateImage.disabled = false; }
+});
+</script>
+<script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");</script>
+<div style="margin:16px auto;max-width:760px;padding:14px 16px;border-radius:16px;background:#f4f5f7;color:#333;font-family:inherit;line-height:1.7"><b>📱 تثبيت التطبيق على الهاتف</b><br>بعد نشر الرابط وفتحه في Chrome اختر <b>⋮ ← إضافة إلى الشاشة الرئيسية</b>. سيعمل Ad Generator كتطبيق مستقل.</div>
+</body>
+</html>
