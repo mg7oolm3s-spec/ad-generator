@@ -51,7 +51,7 @@ app.post("/api/generate-ad", upload.single("image"), async (req, res) => {
     };
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.6-flash",
       contents: [{ role: "user", parts: [{ text: prompt }, imagePart] }]
     });
 
@@ -76,7 +76,7 @@ ${adConcept}`;
       }
     };
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.6-flash",
       contents: [{ role: "user", parts: [{ text: prompt }, imagePart] }]
     });
     res.json({ prompt: response.text || "" });
