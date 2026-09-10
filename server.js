@@ -1,7 +1,6 @@
-import "dotenv/config";
 import express from "express";
 import multer from "multer";
-import OpenAI, { toFile } from "openai";
+import { GoogleGenAI } from "@google/genai";
 
 const app = express();
 const upload = multer({
@@ -10,34 +9,27 @@ const upload = multer({
 });
 
 const port = process.env.PORT || 3000;
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 app.use(express.static("public"));
 
-app.post("/api/generate-ad", upload.single("image"), async (req, res) => {
-  try {
-    if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ error: "OPENAI_API_KEY غير موجود في ملف .env" });
-    }
+function validateImage(req, res) {
+  if (!process.env.GEMINI_API_KEY) {
+    res.status(500).json({ error: "GEMINI_API_KEY غير موجود في إعدادات الخادم." });
+    return false;
+  }
+  if (!req.file) {
+    res.status(400).json({ error: "ارفع صورة المنتج أولاً." });
+    return false;
+  }
+  if (!["image/jpeg", "image/png", "image/webp"].includes(req.file.mimetype)) {
+    res.status(400).json({ error: "الصيغ المدعومة: JPG, PNG, WEBP." });
+    return false;
+  }
+  return true;
+}
 
-    if (!req.file) {
-      return res.status(400).json({ error: "ارفع صورة المنتج أولاً." });
-    }
-
-    const mime = req.file.mimetype;
-    if (!["image/jpeg", "image/png", "image/webp"].includes(mime)) {
-      return res.status(400).json({ error: "الصيغ المدعومة: JPG, PNG, WEBP." });
-    }
-
-    const dataUrl = `data:${mime};base64,${req.file.buffer.toString("base64")}`;
-
-    const response = await client.responses.create({
-      model: "gpt-5.6-luna",
-      instructions: `
-أنت Ad Generator احترافي لصناعة إعلانات المنتجات.
-حلل صورة المنتج بدقة، ولا تخترع شعاراً أو مواصفات غير ظاهرة.
-أخرج النتيجة بالعربية مع إبقاء الـ prompts الإبداعية بالإنجليزية.
-رتب الإجابة بهذه العناوين:
+const commonPrompt = `أنت خبير صناعة إعلانات للمنتجات. حلل الصورة بدقة ولا تخترع مواصفات أو شعارات غير ظاهرة. أخرج النتيجة بالعربية، واجعل VIDEO_PROMPT بالإنجليزية. استخدم العناوين التالية فقط:
 1) PRODUCT_ANALYSIS
 2) AD_CONCEPT
 3) HOOK
@@ -45,90 +37,55 @@ app.post("/api/generate-ad", upload.single("image"), async (req, res) => {
 5) CTA
 6) VIDEO_PROMPT
 7) SHOT_LIST
+اجعل الفيديو 9:16 ومدته 8 ثوانٍ، وحافظ على هوية المنتج وألوانه وشعاره كما يظهر في الصورة.`;
 
-في VIDEO_PROMPT حافظ على شكل المنتج وألوانه وشعاره كما يظهر في الصورة.
-اجعل الإعلان مناسباً لفيديو عمودي 9:16 ومدته 8 ثوانٍ.
-`,
-      input: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: "أنشئ لي إعلاناً احترافياً لهذا المنتج. اجعل الفكرة جذابة وقابلة للتنفيذ في فيديو قصير."
-            },
-            {
-              type: "input_image",
-              image_url: dataUrl,
-              detail: "high"
-            }
-          ]
-        }
-      ]
-    });
-
-    res.json({ result: response.output_text });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      error: error?.message || "حدث خطأ أثناء الاتصال بالـAPI."
-    });
-  }
-});
-
-
-app.post("/api/generate-image", upload.single("image"), async (req, res) => {
+app.post("/api/generate-ad", upload.single("image"), async (req, res) => {
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ error: "OPENAI_API_KEY غير موجود في ملف .env" });
-    }
+    if (!validateImage(req, res)) return;
+    const prompt = `${commonPrompt}\n\nأنشئ إعلاناً احترافياً وجذاباً لهذا المنتج، مناسباً للسوشيال ميديا.`;
+    const imagePart = {
+      inlineData: {
+        mimeType: req.file.mimetype,
+        data: req.file.buffer.toString("base64")
+      }
+    };
 
-    if (!req.file) {
-      return res.status(400).json({ error: "ارفع صورة المنتج أولاً." });
-    }
-
-    const mime = req.file.mimetype;
-    if (!["image/jpeg", "image/png", "image/webp"].includes(mime)) {
-      return res.status(400).json({ error: "الصيغ المدعومة: JPG, PNG, WEBP." });
-    }
-
-    const adConcept = String(req.body?.adConcept || '').slice(0, 12000);
-    const prompt = `
-Create the final premium vertical 9:16 product advertisement using the uploaded product image as the exact visual reference.
-Preserve the product's identity, cup/bottle shape, logo, colors, proportions and visible branding. Do not invent a different product.
-Use the AI-generated advertising concept below as the creative direction. Turn it into a coherent commercial visual rather than merely placing text on the image.
-
-AI-GENERATED AD CONCEPT:
-${adConcept || 'Create a premium, cinematic product advertisement that makes the product the hero.'}
-
-Create cinematic lighting, realistic reflections, condensation where appropriate, natural shadows, premium composition, and strong visual hierarchy. Keep the product sharp and highly photorealistic.
-If the concept calls for a beach/coastal or golden-hour setting, execute it naturally and elegantly. If it calls for another setting, follow the generated concept instead.
-Leave clean negative space only where it improves the composition. Do not add fake logos, fake packaging, invented claims, prices, or unreadable promotional copy.
-High-end commercial photography, photorealistic, premium advertising, vertical 9:16 composition.
-`;
-
-    const imageFile = await toFile(req.file.buffer, "product.png", { type: mime });
-    const result = await client.images.edit({
-      model: "gpt-image-2",
-      image: imageFile,
-      prompt,
-      size: "1024x1536"
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [{ role: "user", parts: [{ text: prompt }, imagePart] }]
     });
 
-    const b64 = result?.data?.[0]?.b64_json;
-    if (!b64) {
-      throw new Error("لم تُرجع خدمة الصور ملف الصورة الناتجة.");
-    }
-
-    res.json({ image: `data:image/png;base64,${b64}` });
+    res.json({ result: response.text || "لم يتم إنشاء نتيجة." });
   } catch (error) {
     console.error(error);
-    res.status(500).json({
-      error: error?.message || "حدث خطأ أثناء إنشاء التصميم الإعلاني."
-    });
+    res.status(500).json({ error: error?.message || "حدث خطأ أثناء الاتصال بـGemini." });
   }
 });
 
-app.listen(port, () => {
-  console.log(`Ad Generator يعمل على http://localhost:${port}`);
+app.post("/api/generate-image-prompt", upload.single("image"), async (req, res) => {
+  try {
+    if (!validateImage(req, res)) return;
+    const adConcept = String(req.body?.adConcept || "").slice(0, 12000);
+    const prompt = `حوّل فكرة الإعلان التالية إلى prompt إنجليزي احترافي جاهز لتوليد صورة إعلانية عمودية 9:16. حافظ على هوية المنتج وشكله وألوانه وشعاره كما يظهر في الصورة. لا تضف ادعاءات أو شعارات وهمية. اجعل المنتج هو البطل، بإضاءة سينمائية وتكوين فاخر.
+
+${adConcept}`;
+    const imagePart = {
+      inlineData: {
+        mimeType: req.file.mimetype,
+        data: req.file.buffer.toString("base64")
+      }
+    };
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [{ role: "user", parts: [{ text: prompt }, imagePart] }]
+    });
+    res.json({ prompt: response.text || "" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error?.message || "حدث خطأ أثناء تجهيز Prompt الصورة." });
+  }
+});
+
+app.listen(port, "0.0.0.0", () => {
+  console.log(`Ad Generator يعمل على المنفذ ${port}`);
 });
